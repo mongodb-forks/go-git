@@ -731,6 +731,7 @@ func (r *Repository) clone(ctx context.Context, o *CloneOptions) error {
 		Progress:   o.Progress,
 		Tags:       o.Tags,
 		RemoteName: o.RemoteName,
+		Filter:     o.Filter,
 	}, o.ReferenceName)
 	if err != nil {
 		return err

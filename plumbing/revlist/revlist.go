@@ -21,7 +21,7 @@ func Objects(
 	objs,
 	ignore []plumbing.Hash,
 ) ([]plumbing.Hash, error) {
-	return ObjectsWithStorageForIgnores(s, s, objs, ignore)
+	return ObjectsWithStorageForIgnoresAndFilter(s, s, objs, ignore, "")
 }
 
 // ObjectsWithStorageForIgnores is the same as Objects, but a
@@ -34,12 +34,30 @@ func ObjectsWithStorageForIgnores(
 	objs,
 	ignore []plumbing.Hash,
 ) ([]plumbing.Hash, error) {
-	ignore, err := objects(ignoreStore, ignore, nil, true)
+	return ObjectsWithStorageForIgnoresAndFilter(s, ignoreStore, objs, ignore, "")
+}
+
+func ObjectsWithStorageForIgnoresAndFilter(
+	s, ignoreStore storer.EncodedObjectStorer,
+	objs,
+	ignore []plumbing.Hash,
+	filter string,
+) ([]plumbing.Hash, error) {
+	ignore, err := objects(ignoreStore, ignore, nil, true, filter)
 	if err != nil {
 		return nil, err
 	}
 
-	return objects(s, objs, ignore, false)
+	return objects(s, objs, ignore, false, filter)
+}
+
+func ObjectsWithFilter(
+	s storer.EncodedObjectStorer,
+	objs,
+	ignore []plumbing.Hash,
+	filter string,
+) ([]plumbing.Hash, error) {
+	return ObjectsWithStorageForIgnoresAndFilter(s, s, objs, ignore, filter)
 }
 
 func objects(
@@ -47,16 +65,28 @@ func objects(
 	objects,
 	ignore []plumbing.Hash,
 	allowMissingObjects bool,
+	filter string,
 ) ([]plumbing.Hash, error) {
 	seen := hashListToSet(ignore)
 	result := make(map[plumbing.Hash]bool)
 	visited := make(map[plumbing.Hash]bool)
 
-	walkerFunc := func(h plumbing.Hash) {
+	walkerFunc := func(h plumbing.Hash) error {
+		o, err := s.EncodedObject(plumbing.AnyObject, h)
+		if err != nil {
+			return err
+		}
+
+		if filter == "blob:none" && o.Type() == plumbing.BlobObject {
+			return nil
+		}
+
 		if !seen[h] {
 			result[h] = true
 			seen[h] = true
 		}
+
+		return nil
 	}
 
 	for _, h := range objects {
@@ -79,7 +109,7 @@ func processObject(
 	seen map[plumbing.Hash]bool,
 	visited map[plumbing.Hash]bool,
 	ignore []plumbing.Hash,
-	walkerFunc func(h plumbing.Hash),
+	walkerFunc func(h plumbing.Hash) error,
 ) error {
 	if seen[h] {
 		return nil
@@ -122,7 +152,7 @@ func reachableObjects(
 	seen map[plumbing.Hash]bool,
 	visited map[plumbing.Hash]bool,
 	ignore []plumbing.Hash,
-	cb func(h plumbing.Hash),
+	cb func(h plumbing.Hash) error,
 ) error {
 	i := object.NewCommitPreorderIter(commit, seen, ignore)
 	pending := make(map[plumbing.Hash]bool)
@@ -151,7 +181,9 @@ func reachableObjects(
 			continue
 		}
 
-		cb(commit.Hash)
+		if err := cb(commit.Hash); err != nil {
+			return err
+		}
 
 		tree, err := commit.Tree()
 		if err != nil {
@@ -178,13 +210,15 @@ func addPendingParents(pending, visited map[plumbing.Hash]bool, commit *object.C
 func iterateCommitTrees(
 	seen map[plumbing.Hash]bool,
 	tree *object.Tree,
-	cb func(h plumbing.Hash),
+	cb func(h plumbing.Hash) error,
 ) error {
 	if seen[tree.Hash] {
 		return nil
 	}
 
-	cb(tree.Hash)
+	if err := cb(tree.Hash); err != nil {
+		return err
+	}
 
 	treeWalker := object.NewTreeWalker(tree, true, seen)
 
@@ -205,7 +239,9 @@ func iterateCommitTrees(
 			continue
 		}
 
-		cb(e.Hash)
+		if err := cb(e.Hash); err != nil {
+			return err
+		}
 	}
 
 	return nil

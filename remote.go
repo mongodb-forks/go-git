@@ -375,8 +375,10 @@ func (r *Remote) fetchPack(ctx context.Context, o *FetchOptions, s transport.Upl
 		return err
 	}
 
-	if err = packfile.UpdateObjectStorage(r.s,
+	if err = packfile.UpdateObjectStorageWithPromised(
+		r.s,
 		buildSidebandIfSupported(req.Capabilities, reader, o.Progress),
+		o.Filter == "blob:none",
 	); err != nil {
 		return err
 	}

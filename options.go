@@ -57,7 +57,8 @@ type CloneOptions struct {
 	Progress sideband.Progress
 	// Tags describe how the tags will be fetched from the remote repository,
 	// by default is AllTags.
-	Tags TagMode
+	Tags   TagMode
+	Filter string
 }
 
 // Validate validates the fields and sets the default values.
@@ -152,7 +153,8 @@ type FetchOptions struct {
 	Tags TagMode
 	// Force allows the fetch to update a local branch even when the remote
 	// branch does not descend from it.
-	Force bool
+	Force  bool
+	Filter string
 }
 
 // Validate validates the fields and sets the default values.

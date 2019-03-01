@@ -90,6 +90,8 @@ func (o *FSObject) Hash() plumbing.Hash { return o.hash }
 // Size implements the plumbing.EncodedObject interface.
 func (o *FSObject) Size() int64 { return o.size }
 
+func (o *FSObject) Promised() bool { return false }
+
 // Type implements the plumbing.EncodedObject interface.
 func (o *FSObject) Type() plumbing.ObjectType {
 	return o.typ

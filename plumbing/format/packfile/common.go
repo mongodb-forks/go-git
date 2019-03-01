@@ -26,11 +26,19 @@ const (
 // UpdateObjectStorage updates the storer with the objects in the given
 // packfile.
 func UpdateObjectStorage(s storer.Storer, packfile io.Reader) error {
+	return updateObjectStorage(s, packfile, false)
+}
+
+func UpdateObjectStorageWithPromised(s storer.Storer, packfile io.Reader, usePromised bool) error {
+	return updateObjectStorage(s, packfile, usePromised)
+}
+
+func updateObjectStorage(s storer.Storer, packfile io.Reader, usePromised bool) error {
 	if pw, ok := s.(storer.PackfileWriter); ok {
 		return WritePackfileToObjectStorage(pw, packfile)
 	}
 
-	p, err := NewParserWithStorage(NewScanner(packfile), s)
+	p, err := NewParserWithStorageAndPromised(NewScanner(packfile), s, usePromised)
 	if err != nil {
 		return err
 	}

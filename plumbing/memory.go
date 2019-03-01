@@ -8,10 +8,11 @@ import (
 
 // MemoryObject on memory Object implementation
 type MemoryObject struct {
-	t    ObjectType
-	h    Hash
-	cont []byte
-	sz   int64
+	t        ObjectType
+	h        Hash
+	cont     []byte
+	sz       int64
+	promised bool
 }
 
 // Hash returns the object Hash, the hash is calculated on-the-fly the first
@@ -38,6 +39,13 @@ func (o *MemoryObject) Size() int64 { return o.sz }
 // SetSize set the object size, a content of the given size should be written
 // afterwards
 func (o *MemoryObject) SetSize(s int64) { o.sz = s }
+
+func (o *MemoryObject) SetPromised(hash Hash) {
+	o.promised = true
+	o.h = hash
+}
+
+func (o *MemoryObject) Promised() bool { return o.promised }
 
 // Reader returns a ObjectReader used to read the object's content.
 func (o *MemoryObject) Reader() (io.ReadCloser, error) {

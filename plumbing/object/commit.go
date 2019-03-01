@@ -165,6 +165,11 @@ func (c *Commit) Decode(o plumbing.EncodedObject) (err error) {
 
 	c.Hash = o.Hash()
 
+	if o.Promised() {
+		c.Message = "<Promised>"
+		return nil
+	}
+
 	reader, err := o.Reader()
 	if err != nil {
 		return err

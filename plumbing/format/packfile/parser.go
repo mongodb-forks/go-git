@@ -7,6 +7,7 @@ import (
 
 	"gopkg.in/src-d/go-git.v4/plumbing"
 	"gopkg.in/src-d/go-git.v4/plumbing/cache"
+	"gopkg.in/src-d/go-git.v4/plumbing/object"
 	"gopkg.in/src-d/go-git.v4/plumbing/storer"
 )
 
@@ -52,6 +53,8 @@ type Parser struct {
 	deltas map[int64][]byte
 
 	ob []Observer
+
+	usePromised bool
 }
 
 // NewParser creates a new Parser. The Scanner source must be seekable.
@@ -67,6 +70,26 @@ func NewParserWithStorage(
 	storage storer.EncodedObjectStorer,
 	ob ...Observer,
 ) (*Parser, error) {
+	return newParserWithStorageAndPromised(scanner, storage, false, ob...)
+}
+
+// NewParserWithStorageAndPromised creates a new Parser. The scanner source must either
+// be seekable or a storage must be provided.
+func NewParserWithStorageAndPromised(
+	scanner *Scanner,
+	storage storer.EncodedObjectStorer,
+	usePromised bool,
+	ob ...Observer,
+) (*Parser, error) {
+	return newParserWithStorageAndPromised(scanner, storage, usePromised, ob...)
+}
+
+func newParserWithStorageAndPromised(
+	scanner *Scanner,
+	storage storer.EncodedObjectStorer,
+	usePromised bool,
+	ob ...Observer,
+) (*Parser, error) {
 	if !scanner.IsSeekable && storage == nil {
 		return nil, ErrNotSeekableSource
 	}
@@ -77,12 +100,13 @@ func NewParserWithStorage(
 	}
 
 	return &Parser{
-		storage: storage,
-		scanner: scanner,
-		ob:      ob,
-		count:   0,
-		cache:   cache.NewBufferLRUDefault(),
-		deltas:  deltas,
+		storage:     storage,
+		scanner:     scanner,
+		ob:          ob,
+		count:       0,
+		cache:       cache.NewBufferLRUDefault(),
+		deltas:      deltas,
+		usePromised: usePromised,
 	}, nil
 }
 
@@ -149,6 +173,70 @@ func (p *Parser) Parse() (plumbing.Hash, error) {
 	}
 
 	if err := p.onFooter(p.checksum); err != nil {
+		return plumbing.ZeroHash, err
+	}
+
+	if !p.usePromised {
+		return p.checksum, nil
+	}
+
+	objIter, err := p.storage.IterEncodedObjects(plumbing.AnyObject)
+	if err != nil {
+		return plumbing.ZeroHash, err
+	}
+	if err := objIter.ForEach(func(obj plumbing.EncodedObject) error {
+		switch obj.Type() {
+		case plumbing.CommitObject:
+			c, err := object.DecodeCommit(nil, obj)
+			if err != nil {
+				return err
+			}
+			for _, h := range c.ParentHashes {
+				if _, err := p.storage.EncodedObject(plumbing.AnyObject, h); err == nil {
+					continue
+				}
+				commitObject := new(plumbing.MemoryObject)
+				commitObject.SetType(plumbing.CommitObject)
+				commitObject.SetPromised(h)
+				if _, err := p.storage.SetEncodedObject(commitObject); err != nil {
+					return err
+				}
+			}
+		case plumbing.TagObject:
+			t, err := object.DecodeTag(nil, obj)
+			if err != nil {
+				return err
+			}
+			if _, err := p.storage.EncodedObject(plumbing.AnyObject, t.Target); err == nil {
+				break
+			}
+			tagObject := new(plumbing.MemoryObject)
+			tagObject.SetType(t.TargetType)
+			tagObject.SetPromised(t.Target)
+			if _, err := p.storage.SetEncodedObject(tagObject); err != nil {
+				return err
+			}
+		case plumbing.TreeObject:
+			{
+				t, err := object.DecodeTree(nil, obj)
+				if err != nil {
+					return err
+				}
+				for _, entry := range t.Entries {
+					if _, err := p.storage.EncodedObject(plumbing.AnyObject, entry.Hash); err == nil {
+						continue
+					}
+					blobObj := new(plumbing.MemoryObject)
+					blobObj.SetType(plumbing.BlobObject)
+					blobObj.SetPromised(entry.Hash)
+					if _, err := p.storage.SetEncodedObject(blobObj); err != nil {
+						return err
+					}
+				}
+			}
+		}
+		return nil
+	}); err != nil {
 		return plumbing.ZeroHash, err
 	}
 
